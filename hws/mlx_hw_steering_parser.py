@@ -20,6 +20,7 @@ from src.dr_definer import *
 from src.dr_dump_hw import *
 from src.dr_rule import *
 from src.dr_hw_resources import *
+from src.dr_json import collect_context_facts, write_json
 from src.dr_ste import *
 from src.dr_db import _config_args, _db
 from src.dr_remote import dr_connect_to_remote
@@ -259,6 +260,8 @@ def parse_args():
                                      epilog="Note: This parser is still under developement, so not all the args are supported yet.",
                                      add_help=False)
     parser.add_argument("-f", dest="file_path", default="", help="Input steering dump file path.", required=True)
+    parser.add_argument("--json-out", type=Path, metavar="FILE",
+                        help="Also write versioned HWS table and matcher facts to FILE.")
     parser.add_argument("-v", action="count", dest="verbose", default=0, help="Increase output verbosity - v, vv, vvv & vvvv for extra verbosity.")
     parser.add_argument("--skip_dump", action="store_false", default=True, dest="dump_hw_resources",
                         help="Skip HW resources dumping.")
@@ -294,6 +297,17 @@ def parse_args():
         sys.exit(0)
     else:
         _config_args["file_path"] = args.file_path
+
+    if args.json_out is not None:
+        if args.remote_ip and args.dump_hw_resources:
+            parser.error("--json-out is supported for local dumps and for parsing a saved CSV.")
+        json_out = args.json_out.resolve()
+        for path in (Path(args.file_path), Path(args.file_path + ".parsed")):
+            if json_out == path.resolve() or (json_out.exists() and path.exists() and json_out.samefile(path)):
+                parser.error("--json-out must be different from the input and .parsed report paths.")
+        if json_out.is_dir() or not json_out.parent.is_dir():
+            parser.error("--json-out must name a file in an existing directory.")
+        _config_args["json_out"] = json_out
 
     _config_args["extra_hw_res_all"] = False
     _config_args["extra_hw_res_arg"] = False
@@ -374,8 +388,10 @@ if __name__ == "__main__":
         env_init()
         file_path = _config_args.get("file_path")
         verbose = _config_args.get("verbose")
+        json_out = _config_args.get("json_out")
+        json_contexts = [] if json_out is not None else None
 
-        with open(file_path, 'r+') as csv_file:
+        with open(file_path, 'r') as csv_file:
             load_to_db = False if _config_args.get("dump_hw_resources") else _config_args.get("load_hw_resources")
             ctxs = dr_parse_csv_file(csv_file, load_to_db)
 
@@ -407,17 +423,27 @@ if __name__ == "__main__":
                 csv_file.write(MLX5DR_DEBUG_RES_TYPE_HW_RRESOURCES_DUMP_END + '\n')
 
             ctx.pre_parse()
-            ctx.tree_print(verbose, "", output_file)
+            exported_rules = {} if json_contexts is not None else None
+            ctx.tree_print(verbose, "", output_file, exported_rules)
+            if json_contexts is not None:
+                json_contexts.append(collect_context_facts(ctx, exported_rules))
+
+        if json_out is not None:
+            write_json(json_out, json_contexts)
 
         print("")#empty line
         print(OUTPUT_FILE_STR + file_path)
         print(PARSED_OUTPUT_FILE_STR + output_file_name)
+        if json_out is not None:
+            print("HWS JSON: " + str(json_out))
 
         if verbose > 0:
             print_unsupported_obj_list()
 
     except OSError as e:
         print(e)
+        if _config_args.get("json_out") is not None:
+            sys.exit(1)
 
     finally:
         env_destroy()

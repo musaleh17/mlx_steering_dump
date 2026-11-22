@@ -117,6 +117,11 @@ class dr_parse_matcher():
         else:
             self.fix_address(rx_icm_addr, tx_icm_addr)
 
+    def resolve_addresses(self):
+        addresses = _db._ft_idx_dic.get(self.data.get("end_ft_id"))
+        if addresses is not None:
+            self.fix_address(addresses[0], addresses[1])
+
     def fix_address(self, rx_icm_addr, tx_icm_addr):
         _tbl_type = _db._tbl_type_db.get(self.data.get("tbl_id"))
         if _tbl_type == DR_TBL_TYPE_NIC_TX or \
@@ -146,9 +151,7 @@ class dr_parse_matcher():
 
         if verbosity > 1:
             _keys.extend(["end_ft_id"])
-            ft_idx = _db._ft_idx_dic.get(self.data.get("end_ft_id"))
-            if ft_idx != None:
-                self.fix_address(ft_idx[0], ft_idx[1])
+            self.resolve_addresses()
 
             if self.data.get("rx_icm_addr") != "0x0":
                 if self.base_addr_0 != None and self.base_addr_0 != "0xffffffff":
@@ -238,7 +241,7 @@ class dr_parse_matcher():
 
         return _str
 
-    def tree_print(self, verbosity, tabs, output_file):
+    def tree_print(self, verbosity, tabs, output_file, exported_rules=None):
         if self.id in _db._col_matchers:
             return ''
         _str = tabs + self.dump_str(verbosity)
@@ -273,10 +276,10 @@ class dr_parse_matcher():
         output_file.write(_str)
         if _config_args.get("parse_hw_resources") and (tbl_level != DR_ROOT_TBL_LEVEL):
             output_file.write(f'{tabs}Rules:\n')
-            main_has_rules = dr_parse_rules(self, verbosity, tabs, output_file)
+            main_has_rules = dr_parse_rules(self, verbosity, tabs, output_file, exported_rules)
             col_has_rules = False
             if col_matcher:
-                col_has_rules = dr_parse_rules(col_matcher, verbosity, tabs, output_file)
+                col_has_rules = dr_parse_rules(col_matcher, verbosity, tabs, output_file, exported_rules)
             if not main_has_rules and not col_has_rules:
                 output_file.write(f'{tabs}{TAB}No rules\n')
 
