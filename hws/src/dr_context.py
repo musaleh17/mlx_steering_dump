@@ -90,7 +90,7 @@ class dr_parse_context():
                 if base_addr != None:
                     matcher.add_base_addr_1(base_addr[0])
 
-    def tree_print(self, verbosity, tabs, output_file):
+    def tree_print(self, verbosity, tabs, output_file, exported_rules=None):
         _str = tabs + self.dump_str(verbosity)
         tabs = tabs + TAB
 
@@ -108,7 +108,7 @@ class dr_parse_context():
         output_file.write(_str)
 
         for t in sorted(self.tables):
-            t.tree_print(verbosity, tabs, output_file)
+            t.tree_print(verbosity, tabs, output_file, exported_rules)
 
     def fix_data(self):
         self.data["hws_support"] = "True" if self.data["hws_support"] == "1" else "False"

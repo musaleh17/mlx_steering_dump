@@ -52,7 +52,7 @@ Running syntax
 
     ./mlx_hw_steering_parser.py -f <FILE_PATH> [-v] [--skip_dump] [-d DEVICE]
                                 [--pid APP_PID] [--port APP_PORT] [--skip_parse]
-                                [--extra_hw_res [pat, arg, counter, all]] [-s] [-h]
+                                [--extra_hw_res [pat, arg, counter, all]] [-s] [--json-out FILE] [-h]
 
 ***arguments:***
 | Flag | Description |
@@ -70,10 +70,25 @@ Running syntax
 | --port APP_PORT | Trigger DPDK/DOCA app <PORT> (must provide PID with -pid) |
 | --extra_hw_res [pat, arg, counter, all] | Request extra HW resources to be dumped/parsed. 'all' option will dump all the HW resources supported by current FW. Usage example: -extra_hw_res pat,arg |
 | -s | Show dump statistics, such as STE's distribution |
+| --json-out FILE | Also export versioned HWS table and matcher facts as JSON. Supports local capture and saved CSV input. |
 | --remote_ip REMOTE_IP | Indicates to extract HW resources from the remote setup <IP> |
 | --user_name USER_NAME | Indicates the user name on the remote setup |
 | --max_cores N | The maximum number of CPU cores to use for parsing. The default is to use all of the cores in the system, but no more than 16 |
 | -h, --help | It will show the help message and exit |
+
+JSON export
+===========
+
+This command exports facts from a saved CSV without querying the hardware.
+
+    ./mlx_hw_steering_parser.py --skip_dump -f hws_dump.log --json-out hws_dump.json
+
+JSON schema version 1 groups tables and matchers by HWS context. Handles and
+addresses are hexadecimal strings. Matchers reference their collision companion by
+handle and carry their own rule start addresses. A null `rule_ste_starts` field
+means the relevant firmware data was unavailable or parsing was disabled. An empty
+array means the captured matcher has no decoded rule starts. The JSON fields are
+independent of report verbosity. The text report is still written to `FILE_PATH.parsed`.
 
 Required package
 ===================

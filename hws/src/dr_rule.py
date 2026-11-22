@@ -85,8 +85,9 @@ def dr_hw_get_ste_from_loc(loc, hint_loc=[], ignore_hint=False, curr_matcher_idx
 
 
 def dr_parse_stes(fw_ste_dic, tbl_type, match_ste_id, hint_loc, verbosity,
-                  tabs, matcher):
+                  tabs, matcher, collect_rule_starts):
     _str = ''
+    rule_starts = [] if collect_rule_starts else None
     for ste_addr, ste in fw_ste_dic.items():
         if ste.get_entry_format() == STE_ENTRY_TYPE_RANGE_MATCH or \
             ste.get_entry_format() == STE_ENTRY_TYPE_4DW_RANGE_MATCH:
@@ -97,11 +98,13 @@ def dr_parse_stes(fw_ste_dic, tbl_type, match_ste_id, hint_loc, verbosity,
             hit_loc = ste.get_hit_location()
             ste = dr_hw_get_ste_from_loc(hit_loc, hint_loc + _db._action_ste_indexes_arr, False, match_ste_id)
         _str += rule.tree_print(verbosity, tabs, matcher)
-    return _str
+        if rule_starts is not None:
+            rule_starts.append(ste_addr)
+    return _str, rule_starts
 
 
 def worker_process(ste_slices, tbl_type, match_ste_id, hint_loc, verbosity,
-                   tabs, matcher, req_q, resp_q):
+                   tabs, matcher, collect_rule_starts, req_q, resp_q):
     while True:
         try:
             slice_idx = req_q.get(timeout=1)
@@ -113,9 +116,9 @@ def worker_process(ste_slices, tbl_type, match_ste_id, hint_loc, verbosity,
         if slice_idx is None:
             return
         try:
-            _str = dr_parse_stes(ste_slices[slice_idx], tbl_type, match_ste_id,
-                                 hint_loc, verbosity, tabs, matcher)
-            resp_q.put((slice_idx, _str))
+            result = dr_parse_stes(ste_slices[slice_idx], tbl_type, match_ste_id,
+                                   hint_loc, verbosity, tabs, matcher, collect_rule_starts)
+            resp_q.put((slice_idx, result))
         except Exception as e:
             print(f'Failed to parse STE chunk: {type(e).__name__}: {e}', flush=True)
 
@@ -129,16 +132,19 @@ def split_dict(dic, slice_size):
     return slices
 
 
-def print_results(results, next_result, output_file):
+def print_results(results, next_result, output_file, rule_starts):
     result = results.get(next_result)
     while result is not None:
-        output_file.write(result)
+        text, starts = result
+        output_file.write(text)
+        if rule_starts is not None:
+            rule_starts.extend(starts)
         next_result += 1
         result = results.get(next_result)
     return next_result
 
 
-def dr_parse_rules(matcher, verbosity, tabs, output_file):
+def dr_parse_rules(matcher, verbosity, tabs, output_file, exported_rules=None):
     _tabs = tabs + TAB
     has_parsed_rule = False
     progress_bar_i = _config_args.get("progress_bar_i")
@@ -178,6 +184,12 @@ def dr_parse_rules(matcher, verbosity, tabs, output_file):
     tbl_type = _db._tbl_type_db.get(matcher.data.get("tbl_id"))
     dumps = tbl_type_to_dumps[tbl_type]
 
+    rule_starts = None
+    if exported_rules is not None:
+        match_indexes = [index for _, index, _ in dumps if index is not None]
+        if match_indexes and all(index in _db._fw_ste_db for index in match_indexes):
+            rule_starts = []
+
     for _tbl_type, match_ste_id, hint_loc in dumps:
         if matcher.second_ste_present:
             hint_loc.append(match_ste_id)
@@ -194,8 +206,11 @@ def dr_parse_rules(matcher, verbosity, tabs, output_file):
             num_workers = mp.cpu_count()
 
         if num_workers == 1:
-            output_file.write(dr_parse_stes(fw_ste_dic, _tbl_type, match_ste_id,
-                              hint_loc, verbosity, _tabs, matcher))
+            text, starts = dr_parse_stes(fw_ste_dic, _tbl_type, match_ste_id, hint_loc, verbosity,
+                                         _tabs, matcher, rule_starts is not None)
+            output_file.write(text)
+            if rule_starts is not None:
+                rule_starts.extend(starts)
 
             progress_bar_i += 1
             interactive_progress_bar(progress_bar_i, progress_bar_total, PARSING_THE_RULES_STR)
@@ -234,7 +249,7 @@ def dr_parse_rules(matcher, verbosity, tabs, output_file):
             req_q.put(None)
             p = mp.Process(target=worker_process,
                            args=(fw_ste_slices, _tbl_type, match_ste_id,
-                                 hint_loc, verbosity, _tabs, matcher,
+                                 hint_loc, verbosity, _tabs, matcher, rule_starts is not None,
                                  req_q, resp_q))
             processes.append(p)
 
@@ -247,17 +262,21 @@ def dr_parse_rules(matcher, verbosity, tabs, output_file):
             except queue.Empty:
                 continue
             results[slice_idx] = result
-            next_result = print_results(results, next_result, output_file)
+            next_result = print_results(results, next_result, output_file, rule_starts)
 
         [p.join() for p in processes]
 
         if len(results) < len(fw_ste_slices):
             print(f'Got only {len(results)} parse results, expected '
                   f'{len(fw_ste_slices)}. Results are incomplete.')
+            rule_starts = None
 
         progress_bar_i += 1
         interactive_progress_bar(progress_bar_i, progress_bar_total, PARSING_THE_RULES_STR)
 
     _config_args["progress_bar_i"] = progress_bar_i
+
+    if exported_rules is not None:
+        exported_rules[matcher.id] = rule_starts
 
     return has_parsed_rule

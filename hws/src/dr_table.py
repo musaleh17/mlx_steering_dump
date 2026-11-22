@@ -43,22 +43,15 @@ class dr_parse_table():
         if self.level ==  0:
             return dump_obj_str(_keys, self.data)
 
+        self.resolve_addresses()
         if _config_args.get("shared_device") != None:
             _keys.extend(["local_ft_id"])
-            ft_idx = _db._ft_idx_dic.get(self.data.get("local_ft_id"))
-            if ft_idx != None:
-                self.fix_address(ft_idx[0], ft_idx[1], True)
-
             if self.data.get("local_rx_icm_addr") != "0x0":
                 _keys.extend(["local_rx_icm_addr"])
             if self.data.get("local_tx_icm_addr") != "0x0":
                 _keys.extend(["local_tx_icm_addr"])
 
         _keys.extend(["ft_id"])
-        ft_idx = _db._ft_idx_dic.get(self.data.get("ft_id"))
-        if ft_idx != None:
-            self.fix_address(ft_idx[0], ft_idx[1])
-
         if self.data.get("rx_icm_addr") != "0x0":
             _keys.extend(["rx_icm_addr"])
         if self.data.get("tx_icm_addr") != "0x0":
@@ -66,14 +59,14 @@ class dr_parse_table():
 
         return dump_obj_str(_keys, self.data)
 
-    def tree_print(self, verbosity, tabs, output_file):
+    def tree_print(self, verbosity, tabs, output_file, exported_rules=None):
         output_file.write(f'{tabs}{self.dump_str(verbosity)}')
         tabs = tabs + TAB
 
         for m in sorted(self.matchers):
             if verbosity < 2 and m.data["id"] in self.col_matcher_ids:
                 continue
-            m.tree_print(verbosity, tabs, output_file)
+            m.tree_print(verbosity, tabs, output_file, exported_rules)
             if verbosity < 2 and m.data["col_matcher_id"] != "0x0":
                 self.col_matcher_ids[m.data["col_matcher_id"]] = ""
 
@@ -108,6 +101,19 @@ class dr_parse_table():
         else:
             self.fix_address(local_rx_icm_addr, local_tx_icm_addr, True)
 
+
+    def resolve_addresses(self):
+        if self.level == 0:
+            return
+
+        if _config_args.get("shared_device") is not None:
+            addresses = _db._ft_idx_dic.get(self.data.get("local_ft_id"))
+            if addresses is not None:
+                self.fix_address(addresses[0], addresses[1], local=True)
+
+        addresses = _db._ft_idx_dic.get(self.data.get("ft_id"))
+        if addresses is not None:
+            self.fix_address(addresses[0], addresses[1])
 
     def fix_address(self, rx_icm_addr, tx_icm_addr, local=False):
         _tbl_type = self.data.get("type")
